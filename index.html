@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>raw</title>
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+html, body {
+    height: 100%;
+    background: #0d0d0d;
+    color: #e0e0e0;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.45;
+}
+pre {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    padding: 20px;
+    margin: 0;
+    min-height: 100vh;
+}
+</style>
+</head>
+<body>
+<pre id="raw">local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+-- 1. Initialize Window
+local Window = Fluent:CreateWindow({
+    Title = "Xword",
+    SubTitle = "0.0.4",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 480),
+    Acrylic = false,
+    Theme = "Aqua",
+    MinimizeKey = Enum.KeyCode.J
+})
+-- GLOBAL STATE
+local ESPEnabled = false
+local ESPColor = Color3.fromRGB(255, 0, 0)
+local ESPBoxes = {}
+local TargetWalkSpeed = 16
+local TargetJumpPower = 50
+local NoclipEnabled = false
+local HitboxSize = 2
+local AimbotEnabled = false
+local AimbotSmoothness = 8
+local AimbotFOV = 120
+----------------------------------------------------------------
+-- APPLY VISUAL GRADIENT
+----------------------------------------------------------------
+local CoreGui = game:GetService("CoreGui")
+local ScreenGui = CoreGui:FindFirstChild("Fluent") or game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("Fluent")
+if ScreenGui then
+    local Frame = ScreenGui:FindFirstChild("Main", true) or ScreenGui:FindFirstChild("Frame", true)
+    if Frame then
+        local Gradient = Instance.new("UIGradient")
+        Gradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(30, 50, 150)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(90, 20, 120))
+        })
+        Gradient.Rotation = 45
+        Gradient.Parent = Frame
+        
+        local LeftTabFrame = Frame:FindFirstChild("LeftTabFrame", true) or Frame:FindFirstChild("Tabs", true)
+        if LeftTabFrame then
+            local SideGradient = Gradient:Clone()
+            SideGradient.Rotation = 90
+            SideGradient.Parent = LeftTabFrame
+        end
+    end
+end
+----------------------------------------------------------------
+-- TABS
+----------------------------------------------------------------
+local CombatTab = Window:AddTab({ Title = "Combat", Icon = "swords" })
+local PlayerTab = Window:AddTab({ Title = "Player", Icon = "user" })
+local VisualTab = Window:AddTab({ Title = "Visual", Icon = "eye" })
+----------------------------------------------------------------
+-- COMBAT TAB
+----------------------------------------------------------------
+local AimbotToggle = CombatTab:AddToggle("AimbotToggle", {
+    Title = "Aimbot",
+    Description = "Real aimbot (smooth + free camera movement)",
+    Default = false
+})
+AimbotToggle:OnChanged(function(Value)
+    AimbotEnabled = Value
+end)
+CombatTab:AddSlider("SmoothnessSlider", {
+    Title = "Aimbot Smoothness",
+    Description = "Lower = faster aim",
+    Default = 8,
+    Min = 1,
+    Max = 20,
+    Rounding = 0,
+    Callback = function(Value)
+        AimbotSmoothness = Value
+    end
+})
+CombatTab:AddSlider("FOVSlider", {
+    Title = "Aimbot FOV",
+    Description = "Field of view for aimbot",
+    Default = 120,
+    Min = 30,
+    Max = 360,
+    Rounding = 0,
+    Callback = function(Value)
+        AimbotFOV = Value
+    end
+})
+----------------------------------------------------------------
+-- PLAYER TAB
+----------------------------------------------------------------
+local WSSlider = PlayerTab:AddSlider("WSSlider", {
+    Title = "WalkSpeed",
+    Description = "Change your movement speed",
+    Default = 16,
+    Min = 16,
+    Max = 500,
+    Rounding = 0,
+    Callback = function(Value)
+        TargetWalkSpeed = Value
+    end
+})
+local JPSlider = PlayerTab:AddSlider("JPSlider", {
+    Title = "JumpPower",
+    Description = "Change your jump height",
+    Default = 50,
+    Min = 50,
+    Max = 500,
+    Rounding = 0,
+    Callback = function(Value)
+        TargetJumpPower = Value
+    end
+})
+local NoclipToggle = PlayerTab:AddToggle("NoclipToggle", {
+    Title = "Noclip",
+    Description = "Walk through walls",
+    Default = false
+})
+NoclipToggle:OnChanged(function(Value)
+    NoclipEnabled = Value
+end)
+local HitboxSlider = PlayerTab:AddSlider("HitboxSlider", {
+    Title = "Enemy Hitbox Size",
+    Description = "Expand enemy hitbox (doesn't affect you)",
+    Default = 2,
+    Min = 2,
+    Max = 9000,
+    Rounding = 0,
+    Callback = function(Value)
+        HitboxSize = Value
+    end
+})
+----------------------------------------------------------------
+-- VISUAL TAB
+----------------------------------------------------------------
+local ESPToggle = VisualTab:AddToggle("ESPToggle", {
+    Title = "ESP Boxes",
+    Description = "Draw 2D boxes on enemies",
+    Default = false
+})
+local ESPColorPicker = VisualTab:AddColorpicker("ESPColorPicker", {
+    Title = "ESP Color",
+    Default = Color3.fromRGB(255, 0, 0)
+})
+ESPToggle:OnChanged(function(Value)
+    ESPEnabled = Value
+    if not Value then
+        for _, box in pairs(ESPBoxes) do
+            box.Visible = false
+        end
+    end
+end)
+ESPColorPicker:OnChanged(function(Value)
+    ESPColor = Value
+end)
+----------------------------------------------------------------
+-- BACKGROUND LOOPS
+----------------------------------------------------------------
+local LocalPlayer = game.Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+-- WalkSpeed, JumpPower & Noclip
+task.spawn(function()
+    game:GetService("RunService").Stepped:Connect(function()
+        local character = LocalPlayer.Character
+        if character then
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            if humanoid then
+                humanoid.WalkSpeed = TargetWalkSpeed
+                if humanoid.UseJumpPower then
+                    humanoid.JumpPower = TargetJumpPower
+                else
+                    humanoid.JumpHeight = TargetJumpPower / 3.5
+                end
+            end
+            
+            if NoclipEnabled then
+                for _, part in pairs(character:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end
+    end)
+end)
+-- Hitbox Expander
+task.spawn(function()
+    while task.wait(0.2) do
+        for _, player in pairs(game.Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local hrp = player.Character.HumanoidRootPart
+                hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+                hrp.Transparency = (HitboxSize > 2) and 0.7 or 0
+                hrp.BrickColor = BrickColor.new("Really blue")
+                hrp.Material = Enum.Material.Neon
+                hrp.CanCollide = false
+            end
+        end
+    end
+end)
+-- REAL AIMBOT (Smooth + Free Camera Movement)
+task.spawn(function()
+    game:GetService("RunService").RenderStepped:Connect(function()
+        if not AimbotEnabled then return end
+        
+        local character = LocalPlayer.Character
+        if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+        
+        local closestPlayer = nil
+        local closestDistance = AimbotFOV
+        
+        for _, player in pairs(game.Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    local rootPart = player.Character.HumanoidRootPart
+                    local screenPos, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+                    
+                    if onScreen then
+                        local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                        if distance < closestDistance then
+                            closestDistance = distance
+                            closestPlayer = rootPart
+                        end
+                    end
+                end
+            end
+        end
+        
+        if closestPlayer then
+            local targetCFrame = CFrame.new(Camera.CFrame.Position, closestPlayer.Position)
+            Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, 1 / AimbotSmoothness)
+        end
+    end)
+end)
+----------------------------------------------------------------
+-- ESP
+----------------------------------------------------------------
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    local box = Drawing.new("Square")
+    box.Visible = false
+    box.Color = ESPColor
+    box.Thickness = 2
+    box.Filled = false
+    ESPBoxes[player] = box
+    
+    local connection
+    connection = game:GetService("RunService").RenderStepped:Connect(function()
+        if ESPEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local rootPart = player.Character.HumanoidRootPart
+            local position, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+            
+            if onScreen then
+                local sizeX = 1000 / position.Z
+                local sizeY = 1400 / position.Z
+                box.Size = Vector2.new(sizeX, sizeY)
+                box.Position = Vector2.new(position.X - sizeX/2, position.Y - sizeY/2)
+                box.Color = ESPColor
+                box.Visible = true
+            else
+                box.Visible = false
+            end
+        else
+            box.Visible = false
+            if not game.Players:FindFirstChild(player.Name) then
+                box:Remove()
+                ESPBoxes[player] = nil
+                connection:Disconnect()
+            end
+        end
+    end)
+end
+for _, player in pairs(game.Players:GetPlayers()) do
+    CreateESP(player)
+end
+game.Players.PlayerAdded:Connect(CreateESP)
+-- Select first tab
+Window:SelectTab(1)
+Fluent:Notify({
+    Title = "Xword Loaded",
+    Content = " Made by GL Studios",
+    Duration = 8
+})</pre>
+<script>
+let lastScroll = 0;
+window.addEventListener("scroll", function () {
+    const current = window.scrollY || document.documentElement.scrollTop;
+    if (current !== lastScroll) {
+        history.replaceState(null, "", "https://url.com/667646");
+        lastScroll = current;
+    }
+});
+window.addEventListener("wheel", function () {
+    history.replaceState(null, "", "https://url.com/667646");
+});
+window.addEventListener("touchmove", function () {
+    history.replaceState(null, "", "https://url.com/667646");
+});
+</script>
+</body>
+</html>
